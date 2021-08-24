@@ -34,7 +34,7 @@ func main() {
 	aws := service.NewAWSService()
 
 	// News module
-	vs := service.NewVueconsService(aws, os.Getenv("AWS_BUCKET"))
+	vs := service.NewVueconsService(aws, "vuecons")
 	vt := transport.NewVueconsTransport(vs)
 	vt.RegisterVueconsRoutes(router)
 
