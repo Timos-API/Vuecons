@@ -5,12 +5,11 @@ import (
 	"context"
 	"errors"
 	"mime/multipart"
-	"net/http"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type Vuecon struct {
@@ -20,29 +19,29 @@ type Vuecon struct {
 }
 
 type VueconsService struct {
-	aws    *s3.S3
+	aws    *s3.Client
 	bucket *string
 }
 
-func NewVueconsService(awsS3 *s3.S3, bucket string) *VueconsService {
-	return &VueconsService{awsS3, aws.String(bucket)}
+func NewVueconsService(awsClient *s3.Client, bucket string) *VueconsService {
+	return &VueconsService{awsClient, aws.String(bucket)}
 }
 
-func (s *VueconsService) GetAllVuecons(ctx context.Context) (*[]Vuecon, error) {
+func (s *VueconsService) GetAll(ctx context.Context) (*[]Vuecon, error) {
 
-	output, err := s.aws.ListObjectsV2WithContext(ctx, &s3.ListObjectsV2Input{Bucket: s.bucket})
+	output, err := s.aws.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: s.bucket})
 
 	if err != nil {
 		return nil, err
 	}
 
-	vuecons := make([]Vuecon, 0, len(output.Contents))
+	vuecons := []Vuecon{}
 
 	for _, obj := range output.Contents {
 		vuecon := Vuecon{
 			VueconID:     *obj.Key,
 			LastModified: obj.LastModified.UnixNano() / 1000000,
-			Size:         *obj.Size,
+			Size:         obj.Size,
 		}
 		vuecons = append(vuecons, vuecon)
 	}
@@ -59,14 +58,14 @@ func (s *VueconsService) Upload(ctx context.Context, file multipart.File, fileHe
 	buffer := make([]byte, fileHeader.Size)
 	file.Read(buffer)
 
-	_, err := s.aws.PutObjectWithContext(ctx, &s3.PutObjectInput{
+	_, err := s.aws.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:               s.bucket,
 		Key:                  &fileHeader.Filename,
-		ACL:                  aws.String("private"),
+		ACL:                  "public-read",
 		Body:                 bytes.NewReader(buffer),
-		ContentLength:        aws.Int64(fileHeader.Size),
-		ContentType:          aws.String(http.DetectContentType(buffer)),
-		ServerSideEncryption: aws.String("AES256"),
+		ContentLength:        fileHeader.Size,
+		ContentType:          aws.String("image/svg+xml"),
+		ServerSideEncryption: "AES256",
 	})
 
 	if err != nil {
@@ -80,7 +79,7 @@ func (s *VueconsService) Upload(ctx context.Context, file multipart.File, fileHe
 
 func (s *VueconsService) Delete(ctx context.Context, id string) (bool, error) {
 
-	_, err := s.aws.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
+	_, err := s.aws.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: s.bucket,
 		Key:    aws.String(id),
 	})
@@ -90,4 +89,24 @@ func (s *VueconsService) Delete(ctx context.Context, id string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (s *VueconsService) Get(ctx context.Context, id string) (*Vuecon, error) {
+
+	output, err := s.aws.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: s.bucket,
+		Key:    aws.String(id),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	vuecon := Vuecon{
+		VueconID:     id,
+		LastModified: output.LastModified.UnixNano() / 1000000,
+		Size:         output.ContentLength,
+	}
+
+	return &vuecon, nil
 }
