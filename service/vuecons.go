@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"mime/multipart"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ type Vuecon struct {
 	VueconID     string `json:"id"`
 	LastModified int64  `json:"last_modified"`
 	Size         int64  `json:"size"`
+	Src          string `json:"src"`
 }
 
 type VueconsService struct {
@@ -25,6 +28,10 @@ type VueconsService struct {
 
 func NewVueconsService(awsClient *s3.Client, bucket string) *VueconsService {
 	return &VueconsService{awsClient, aws.String(bucket)}
+}
+
+func (s *VueconsService) getUrl(key string) string {
+	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", os.Getenv("AWS_BUCKET"), os.Getenv("AWS_REGION"), key)
 }
 
 func (s *VueconsService) GetAll(ctx context.Context) (*[]Vuecon, error) {
@@ -42,6 +49,7 @@ func (s *VueconsService) GetAll(ctx context.Context) (*[]Vuecon, error) {
 			VueconID:     *obj.Key,
 			LastModified: obj.LastModified.UnixNano() / 1000000,
 			Size:         obj.Size,
+			Src:          s.getUrl(*obj.Key),
 		}
 		vuecons = append(vuecons, vuecon)
 	}
@@ -99,13 +107,14 @@ func (s *VueconsService) Get(ctx context.Context, id string) (*Vuecon, error) {
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, errors.New("icon doesn't exist")
 	}
 
 	vuecon := Vuecon{
 		VueconID:     id,
 		LastModified: output.LastModified.UnixNano() / 1000000,
 		Size:         output.ContentLength,
+		Src:          s.getUrl(id),
 	}
 
 	return &vuecon, nil
