@@ -31,7 +31,7 @@ func NewVueconsService(awsClient *s3.Client, bucket string) *VueconsService {
 }
 
 func (s *VueconsService) getUrl(key string) string {
-	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", os.Getenv("AWS_BUCKET"), os.Getenv("AWS_REGION"), key)
+	return fmt.Sprintf("https://vuecons.s3.%s.amazonaws.com/%s", os.Getenv("AWS_REGION"), key)
 }
 
 func (s *VueconsService) GetAll(ctx context.Context) (*[]Vuecon, error) {
