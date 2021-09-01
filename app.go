@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Timos-API/Vuecons/persistence"
 	"Timos-API/Vuecons/service"
 	"Timos-API/Vuecons/transport"
 	"context"
@@ -15,10 +16,14 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
 	fmt.Println("Server is starting")
+
+	db := connectToDB()
 
 	router := mux.NewRouter()
 	router.Use(routerMw)
@@ -33,8 +38,9 @@ func main() {
 	// Aws service
 	aws := service.NewAWSService()
 
-	// News module
-	vs := service.NewVueconsService(aws, "vuecons")
+	// Vuecon module
+	vp := persistence.NewVueconPersistor(db.Collection("vuecons"))
+	vs := service.NewVueconsService(vp, aws, "vuecons")
 	vt := transport.NewVueconsTransport(vs)
 	vt.RegisterVueconsRoutes(router)
 
@@ -79,4 +85,26 @@ func routerMw(next http.Handler) http.Handler {
 		w.Header().Set("content-type", "application/json")
 		next.ServeHTTP(w, r)
 	})
+}
+
+func connectToDB() *mongo.Database {
+
+	clientOptions := options.Client().ApplyURI(os.Getenv("MONGO_URI"))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	defer cancel()
+
+	c, err := mongo.Connect(ctx, clientOptions)
+
+	if err == nil {
+		err = c.Ping(context.Background(), nil)
+	}
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Successfully connected to MongoDB")
+
+	return c.Database("TimosAPI")
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"Timos-API/Vuecons/persistence"
 	"bytes"
 	"context"
 	"errors"
@@ -10,54 +11,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Timos-API/transformer"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/go-playground/validator/v10"
 )
 
-type Vuecon struct {
-	VueconID     string `json:"id"`
-	LastModified int64  `json:"last_modified"`
-	Size         int64  `json:"size"`
-	Src          string `json:"src"`
-}
-
 type VueconsService struct {
+	p      *persistence.VueconPersistor
 	aws    *s3.Client
 	bucket *string
 }
 
-func NewVueconsService(awsClient *s3.Client, bucket string) *VueconsService {
-	return &VueconsService{awsClient, aws.String(bucket)}
+func NewVueconsService(p *persistence.VueconPersistor, awsClient *s3.Client, bucket string) *VueconsService {
+	return &VueconsService{p, awsClient, aws.String(bucket)}
 }
 
 func (s *VueconsService) getUrl(key string) string {
 	return fmt.Sprintf("https://vuecons.s3.%s.amazonaws.com/%s", os.Getenv("AWS_REGION"), key)
 }
 
-func (s *VueconsService) GetAll(ctx context.Context) (*[]Vuecon, error) {
-
-	output, err := s.aws.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: s.bucket})
-
-	if err != nil {
-		return nil, err
-	}
-
-	vuecons := []Vuecon{}
-
-	for _, obj := range output.Contents {
-		vuecon := Vuecon{
-			VueconID:     *obj.Key,
-			LastModified: obj.LastModified.UnixNano() / 1000000,
-			Size:         obj.Size,
-			Src:          s.getUrl(*obj.Key),
-		}
-		vuecons = append(vuecons, vuecon)
-	}
-
-	return &vuecons, nil
+func (s *VueconsService) GetAll(ctx context.Context) (*[]persistence.Vuecon, error) {
+	return s.p.GetAll(ctx)
 }
 
-func (s *VueconsService) Upload(ctx context.Context, file multipart.File, fileHeader *multipart.FileHeader) (*Vuecon, error) {
+func (s *VueconsService) Upload(ctx context.Context, file multipart.File, fileHeader *multipart.FileHeader) (*persistence.Vuecon, error) {
 
 	if !strings.HasSuffix(fileHeader.Filename, ".svg") {
 		return nil, errors.New("invalid file type: only svg files allowed")
@@ -80,14 +58,27 @@ func (s *VueconsService) Upload(ctx context.Context, file multipart.File, fileHe
 		return nil, err
 	}
 
-	vuecon := Vuecon{VueconID: fileHeader.Filename, LastModified: time.Now().UnixNano() / 1000000, Size: fileHeader.Size}
+	vuecon := persistence.Vuecon{
+		Name:         fileHeader.Filename,
+		LastModified: time.Now().UnixNano() / 1000000,
+		Size:         fileHeader.Size,
+		Src:          s.getUrl(fileHeader.Filename),
+		Tags:         make([]string, 0),
+		Categories:   make([]string, 0),
+	}
 
-	return &vuecon, nil
+	return s.p.Create(ctx, vuecon)
 }
 
 func (s *VueconsService) Delete(ctx context.Context, id string) (bool, error) {
 
-	_, err := s.aws.DeleteObject(ctx, &s3.DeleteObjectInput{
+	success, err := s.p.Delete(ctx, id)
+
+	if !success && err != nil {
+		return false, err
+	}
+
+	_, err = s.aws.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: s.bucket,
 		Key:    aws.String(id),
 	})
@@ -99,23 +90,17 @@ func (s *VueconsService) Delete(ctx context.Context, id string) (bool, error) {
 	return true, nil
 }
 
-func (s *VueconsService) Get(ctx context.Context, id string) (*Vuecon, error) {
+func (s *VueconsService) Get(ctx context.Context, id string) (*persistence.Vuecon, error) {
+	return s.p.GetById(ctx, id)
+}
 
-	output, err := s.aws.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: s.bucket,
-		Key:    aws.String(id),
-	})
-
+func (s *VueconsService) Update(ctx context.Context, vuecon persistence.Vuecon) (*persistence.Vuecon, error) {
+	validate := validator.New()
+	err := validate.Struct(vuecon)
 	if err != nil {
-		return nil, errors.New("icon doesn't exist")
+		return nil, err
 	}
 
-	vuecon := Vuecon{
-		VueconID:     id,
-		LastModified: output.LastModified.UnixNano() / 1000000,
-		Size:         output.ContentLength,
-		Src:          s.getUrl(id),
-	}
-
-	return &vuecon, nil
+	cleaned := transformer.Clean(vuecon, "update")
+	return s.p.Update(ctx, vuecon.Name, cleaned)
 }
