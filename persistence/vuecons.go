@@ -34,17 +34,13 @@ func (p *VueconPersistor) Create(ctx context.Context, vuecon Vuecon) (*Vuecon, e
 	p.Delete(ctx, vuecon.Name)
 
 	cleaned := transformer.Clean(vuecon, "insert")
-	res, err := p.c.InsertOne(ctx, cleaned)
+	_, err := p.c.InsertOne(ctx, cleaned)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if oid, ok := res.InsertedID.(primitive.ObjectID); ok {
-		return p.GetById(ctx, oid.Hex())
-	}
-
-	return nil, errors.New("something ubiquitous happened")
+	return p.GetById(ctx, vuecon.Name)
 }
 
 func (p *VueconPersistor) Update(ctx context.Context, name string, update interface{}) (*Vuecon, error) {
